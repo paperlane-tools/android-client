@@ -373,4 +373,4 @@ yzj-mat-log-20261020-28809.txt
 
 ## 许可证
 
-[MIT](LICENSE) © 2026 paperlane-tools
+[PolyForm Noncommercial 1.0.0](LICENSE) © 2026 paperlane-tools
