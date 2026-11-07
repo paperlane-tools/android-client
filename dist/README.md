@@ -6,9 +6,12 @@
 
 | 文件 | 版本 | 类型 | 说明 |
 |---|---|---|---|
-| `yzj-client-v0.4.6-poc-debug.apk` | v0.4.6 | **debug（POC）** | 验证用；`debuggable`，未做 release 签名/加固 |
+| `yzj-client-v0.8.0-debug.apk` | v0.8.0 | **debug（测试版）** | 由 GitHub Actions 云编译；`debuggable`，未做 release 签名 |
 
-> 项目里**没有** release/正式签名包。`..\README.md` 里也写明：
+> 仓库里**不提交 APK**，构建产物发布在 GitHub Releases：
+> https://github.com/paperlane-tools/android-client/releases
+>
+> 目前**没有** release/正式签名包。`..\README.md` 里也写明：
 > 「当前是 debug 包，正式分发还需要 release 签名」。
 
 ## 构建 debug（和上面那个包一致）
@@ -29,6 +32,6 @@ Copy-Item app\build\outputs\apk\debug\app-debug.apk dist\yzj-client-v<版本>-de
 ## 安装到 MuMu 多开
 
 ```powershell
-adb -s 127.0.0.1:16384 install -r dist\yzj-client-v0.4.6-poc-debug.apk
-adb -s 127.0.0.1:16416 install -r dist\yzj-client-v0.4.6-poc-debug.apk
+adb -s 127.0.0.1:16384 install -r yzj-client-v0.8.0-debug.apk
+adb -s 127.0.0.1:16416 install -r yzj-client-v0.8.0-debug.apk
 ```

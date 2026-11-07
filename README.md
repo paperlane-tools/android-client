@@ -7,7 +7,7 @@
 | 版本 | v0.8.0（测试版 / debug） |
 | 形态 | Android App（Kotlin + WebView） |
 | 内置脚本 | quiz-helper v1.6.2 / materials-helper v1.3.1 |
-| 安装包 | 不随仓库分发（见 `dist/README.md`） |
+| 安装包 | [Releases](https://github.com/paperlane-tools/android-client/releases)（当前 `v0.8.0` 测试版 APK） |
 
 > **适用平台：易智教云课堂（`csgmooc.com`，含其移动端页面）**
 > 内置的两个脚本分别对应该平台的「刷题」和「资料」；其他平台的页面不会生效。
@@ -20,7 +20,7 @@
 WebView 里，用 Android 多进程 + `WebView.setDataDirectorySuffix` 做账号隔离，
 用原生 HTTP 桥接解决 AI 接口的 CORS 问题。
 
-## 当前能力（v0.4.6）
+## 当前能力（v0.8.0）
 
 - 默认 2 个实例，主界面可添加到 6 个；实例 1~6 分别运行在
   `:acct0` 到 `:acct5` 六个独立进程。
@@ -88,7 +88,7 @@ E:\yzj-js\android-client\app\build\outputs\apk\debug\app-debug.apk
 已验证的分发副本（构建目录清理后仍保留）：
 
 ```
-E:\yzj-js\android-client\dist\yzj-client-v0.4.6-poc-debug.apk
+https://github.com/paperlane-tools/android-client/releases/tag/v0.8.0
 ```
 
 一键构建并安装到 MuMu：
