@@ -1,0 +1,52 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'com.yzj.client'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.yzj.client"
+        minSdk 26
+        targetSdk 34
+        versionCode 10
+        versionName "0.4.6-poc"
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
+        }
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+}
+
+// Keep the Android assets in sync with the two canonical userscripts.
+// Rebuilding the APK always picks up the latest quiz/materials scripts.
+def syncUserscripts = tasks.register('syncUserscripts', Copy) {
+    from(rootProject.file('../quiz/csgmooc-helper.user.js')) {
+        rename { 'yzj-quiz.user.js' }
+    }
+    from(rootProject.file('../materials/userscript/csgmooc-materials.user.js')) {
+        rename { 'yzj-mat.user.js' }
+    }
+    into(layout.projectDirectory.dir('src/main/assets'))
+}
+
+tasks.named('preBuild').configure {
+    dependsOn(syncUserscripts)
+}
