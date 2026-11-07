@@ -1,4 +1,17 @@
-# 易智教多开助手（Android 验证版）
+# android-client · 安卓多开客户端
+
+**把两个浏览器脚本装进一个安卓 App：Kotlin 壳 + WebView，多进程 + 独立数据目录做账号隔离。**
+
+| | |
+|---|---|
+| 版本 | v0.4.6（debug / POC） |
+| 形态 | Android App（Kotlin + WebView） |
+| 内置脚本 | quiz-helper v1.6.2 / materials-helper v1.3.1 |
+| 安装包 | 不随仓库分发（见 `dist/README.md`） |
+
+---
+
+## 速览（原来的详细说明在下面）
 
 这是一个可运行的 Android 验证客户端：原生层已迁移到 Kotlin，两个油猴脚本原样跑在
 WebView 里，用 Android 多进程 + `WebView.setDataDirectorySuffix` 做账号隔离，
