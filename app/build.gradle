@@ -11,8 +11,8 @@ android {
         applicationId "com.yzj.client"
         minSdk 26
         targetSdk 34
-        versionCode 10
-        versionName "0.4.6-poc"
+        versionCode 11
+        versionName "0.8.0"
     }
 
     buildTypes {
@@ -38,11 +38,15 @@ android {
 // Keep the Android assets in sync with the two canonical userscripts.
 // Rebuilding the APK always picks up the latest quiz/materials scripts.
 def syncUserscripts = tasks.register('syncUserscripts', Copy) {
-    from(rootProject.file('../quiz/csgmooc-helper.user.js')) {
-        rename { 'yzj-quiz.user.js' }
+    // 独立仓库里没有 ../quiz 与 ../materials；只有开发树里才同步。
+    def quizSrc = rootProject.file('../quiz/csgmooc-helper.user.js')
+    def matSrc = rootProject.file('../materials/userscript/csgmooc-materials.user.js')
+    onlyIf { quizSrc.exists() && matSrc.exists() }
+    if (quizSrc.exists()) {
+        from(quizSrc) { rename { 'yzj-quiz.user.js' } }
     }
-    from(rootProject.file('../materials/userscript/csgmooc-materials.user.js')) {
-        rename { 'yzj-mat.user.js' }
+    if (matSrc.exists()) {
+        from(matSrc) { rename { 'yzj-mat.user.js' } }
     }
     into(layout.projectDirectory.dir('src/main/assets'))
 }

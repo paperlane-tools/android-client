@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| 版本 | v0.4.6（debug / POC） |
+| 版本 | v0.8.0（测试版 / debug） |
 | 形态 | Android App（Kotlin + WebView） |
 | 内置脚本 | quiz-helper v1.6.2 / materials-helper v1.3.1 |
 | 安装包 | 不随仓库分发（见 `dist/README.md`） |
