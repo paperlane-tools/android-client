@@ -1,8 +1,10 @@
 # Android / Gradle / IDE
 .gradle/
+.kotlin/
 **/build/
 local.properties
 .idea/
+.vscode/
 *.iml
 .externalNativeBuild/
 .cxx/
@@ -23,6 +25,9 @@ ai_config.json
 # Built packages (README remains tracked)
 *.apk
 *.aab
+*.ap_
+*.dex
+*.class
 !dist/README.md
 
 # Logs / temporary files
@@ -32,4 +37,3 @@ ai_config.json
 .DS_Store
 Thumbs.db
 desktop.ini
-

@@ -875,7 +875,9 @@ abstract class AccountActivity : Activity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(controlReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
-            registerReceiver(controlReceiver, filter, CONTROL_PERMISSION, null)
+            registerReceiver(
+                controlReceiver, filter, controlPermission(), null
+            )
         }
         receiverRegistered = true
     }
@@ -962,10 +964,11 @@ abstract class AccountActivity : Activity() {
     private fun String?.cleanJsonString(): String =
         this?.takeUnless { it == "null" || it == "undefined" }.orEmpty()
 
+    private fun controlPermission(): String = getString(R.string.control_permission)
+
     companion object {
         const val ACTION_RESET = "com.yzj.client.action.RESET"
         const val ACTION_STOP = "com.yzj.client.action.STOP"
-        private const val CONTROL_PERMISSION = "com.yzj.client.permission.CONTROL"
         private const val TAG = "YZJ_ACCOUNT"
         private const val TASK_URL = "https://www.csgmooc.com/spoc/html/stud_task.html"
         private const val MATERIAL_URL = "https://www.csgmooc.com/spoc/html/stud_material.html"

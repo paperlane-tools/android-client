@@ -24,6 +24,9 @@ class NativeBridge(
     private val prefs = activity.getSharedPreferences("yzj_gm", Context.MODE_PRIVATE)
     private val pool = Executors.newCachedThreadPool()
     private val connections = ConcurrentHashMap<String, HttpURLConnection>()
+    private val bankStateLock = Any()
+    private var lastBankSeen: String? = null
+    private var lastBankNotesSeen: String? = null
 
     private fun key(name: String) = "slot$slot:$name"
 
@@ -40,7 +43,12 @@ class NativeBridge(
             // GM_getValue parses this return value with JSON.parse. The bank
             // file already contains JSON, so returning it raw yields an object;
             // quoting it would turn the whole bank into one long string.
-            return BankStore.readValue(activity, slot, name)
+            val value = BankStore.readValue(activity, slot, name)
+            synchronized(bankStateLock) {
+                if (name == "answerBank") lastBankSeen = value
+                else lastBankNotesSeen = value
+            }
+            return value
         }
         return prefs.getString(key(name), null)
     }
@@ -60,7 +68,19 @@ class NativeBridge(
                 BankStore.removeValue(activity, slot, name)
             } else {
                 runCatching { JSONObject(value) }
-                    .onSuccess { BankStore.writeValue(activity, slot, name, value) }
+                    .onSuccess {
+                        val previous = synchronized(bankStateLock) {
+                            if (name == "answerBank") lastBankSeen
+                            else lastBankNotesSeen
+                        }
+                        val merged = BankStore.mergeValue(
+                            activity, slot, name, value, previous
+                        )
+                        synchronized(bankStateLock) {
+                            if (name == "answerBank") lastBankSeen = merged
+                            else lastBankNotesSeen = merged
+                        }
+                    }
                     .onFailure {
                         activity.appendLog("error", "题库写入失败：${it.message}")
                     }

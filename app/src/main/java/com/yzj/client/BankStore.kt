@@ -1,12 +1,13 @@
 package com.yzj.client
 
 import android.content.Context
-import android.os.Environment
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -16,6 +17,8 @@ object BankStore {
     private const val BANK = "answerBank"
     private const val NOTES = "bankNotes"
     private const val BANK_DIR = "banks"
+    private const val LOCK_FILE = ".bank-sync.lock"
+    private val PROCESS_LOCK = Any()
 
     data class Parsed(
         val bank: JSONObject,
@@ -23,10 +26,16 @@ object BankStore {
         val source: String
     )
 
+    data class MergeResult(
+        val incoming: Int,
+        val added: Int,
+        val updated: Int,
+        val unchanged: Int,
+        val finalCount: Int
+    )
+
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-
-    private fun key(slot: Int, name: String) = "slot$slot:$name"
 
     fun count(context: Context, slot: Int): Int {
         val raw = readValue(context, slot, BANK) ?: "{}"
@@ -62,18 +71,6 @@ object BankStore {
         return out
     }
 
-    fun exportToFile(context: Context, slot: Int): String {
-        val dir = File(
-            context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),
-            "yzj-export"
-        )
-        if (!dir.isDirectory && !dir.mkdirs()) error("无法创建导出目录")
-        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.CHINA).format(Date())
-        val out = File(dir, "bank-slot${slot + 1}-$stamp.json")
-        out.writeText(exportJson(context, slot).toString(2))
-        return out.absolutePath
-    }
-
     /**
      * Accepts web flat export, app wrapper, raw object, array, or CSV.
      */
@@ -89,6 +86,29 @@ object BankStore {
         return parsed
     }
 
+    fun previewMerge(context: Context, slot: Int, text: String): MergeResult {
+        val parsed = parseImport(text)
+        ensureSharedInitialized(context)
+        val current = JSONObject(readSharedValue(context, BANK) ?: "{}")
+        return mergeInto(current, parsed.bank).second
+    }
+
+    fun mergeData(context: Context, slot: Int, text: String): MergeResult {
+        val parsed = parseImport(text)
+        ensureSharedInitialized(context)
+        return withFileLock(context) {
+            val currentBank = JSONObject(readSharedValue(context, BANK) ?: "{}")
+            val currentNotes = JSONObject(readSharedValue(context, NOTES) ?: "{}")
+            val (mergedBank, result) = mergeInto(currentBank, parsed.bank)
+            replaceFile(sharedDataFile(context, BANK), mergedBank.toString())
+            if (parsed.notes != null) {
+                val (mergedNotes, _) = mergeInto(currentNotes, parsed.notes)
+                replaceFile(sharedDataFile(context, NOTES), mergedNotes.toString())
+            }
+            result
+        }
+    }
+
     fun clear(context: Context, slot: Int) {
         removeValue(context, slot, BANK)
         removeValue(context, slot, NOTES)
@@ -96,7 +116,7 @@ object BankStore {
 
     fun summary(context: Context, slot: Int): String {
         val n = count(context, slot)
-        return if (n == 0) "题库为空" else "题库 $n 条"
+        return if (n == 0) "共享题库为空" else "共享题库 $n 条"
     }
 
     /**
@@ -105,19 +125,183 @@ object BankStore {
      * banks use app-private files that both processes can see immediately.
      */
     internal fun readValue(context: Context, slot: Int, name: String): String? {
-        val target = dataFile(context, slot, name)
-        if (target.isFile) {
-            val value = runCatching { target.readText() }.getOrNull()
-            if (!value.isNullOrBlank()) return value
-        }
-        val legacy = prefs(context).getString(key(slot, name), null) ?: return null
-        // Migrate the v0.4.5 SharedPreferences representation on first read.
-        runCatching { writeValue(context, slot, name, legacy) }
-        return legacy
+        ensureSharedInitialized(context)
+        return readSharedValue(context, name)
     }
 
     internal fun writeValue(context: Context, slot: Int, name: String, value: String) {
-        val target = dataFile(context, slot, name)
+        withFileLock(context) {
+            replaceFile(sharedDataFile(context, name), value)
+        }
+    }
+
+    /**
+     * The userscript writes the complete bank object. Merge it with the shared
+     * file so two live instances cannot overwrite each other's new answers.
+     * A deletion is recognised only when this instance had previously seen the
+     * same entry; entries added by another instance meanwhile stay intact.
+     */
+    internal fun mergeValue(
+        context: Context,
+        slot: Int,
+        name: String,
+        incomingText: String,
+        lastSeenText: String?
+    ): String {
+        val incoming = JSONObject(incomingText)
+        ensureSharedInitialized(context)
+        return withFileLock(context) {
+            val current = runCatching {
+                JSONObject(readSharedValue(context, name).orEmpty().ifBlank { "{}" })
+            }.getOrElse { JSONObject() }
+            val lastSeen = lastSeenText?.let {
+                runCatching { JSONObject(it) }.getOrNull()
+            }
+            val merged = mergeEntries(current, incoming, lastSeen)
+            replaceFile(sharedDataFile(context, name), merged.toString())
+            merged.toString()
+        }
+    }
+
+    internal fun removeValue(context: Context, slot: Int, name: String) {
+        // Keep an explicit empty shared object. Deleting the file would make
+        // the next launch treat old per-slot files as unmigrated and restore
+        // a bank that the user deliberately cleared.
+        writeValue(context, slot, name, "{}")
+    }
+
+    fun exportText(context: Context, slot: Int): String =
+        exportJson(context, slot).toString(2)
+
+    fun exportFileName(): String {
+        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.CHINA).format(Date())
+        return "yzj-bank-shared-$stamp.json"
+    }
+
+    private fun ensureSharedInitialized(context: Context) {
+        val bankFile = sharedDataFile(context, BANK)
+        val notesFile = sharedDataFile(context, NOTES)
+        if (bankFile.isFile && notesFile.isFile) return
+        withFileLock(context) {
+            val bankTarget = sharedDataFile(context, BANK)
+            val notesTarget = sharedDataFile(context, NOTES)
+            if (!bankTarget.isFile) {
+                replaceFile(bankTarget, migrateLegacy(context, BANK).toString())
+            }
+            if (!notesTarget.isFile) {
+                replaceFile(notesTarget, migrateLegacy(context, NOTES).toString())
+            }
+        }
+    }
+
+    private fun migrateLegacy(context: Context, name: String): JSONObject {
+        val merged = JSONObject()
+        val pattern = Regex("^slot(\\d+)_${Regex.escape(name)}\\.json$")
+        val dir = bankDir(context)
+        var foundSlotFile = false
+        dir.listFiles()?.sortedBy { it.name }?.forEach { file ->
+            val match = pattern.matchEntire(file.name) ?: return@forEach
+            match.groupValues[1].toIntOrNull() ?: return@forEach
+            foundSlotFile = true
+            val fileValue = runCatching { JSONObject(file.readText()) }.getOrNull()
+            if (fileValue != null) mergeNewer(merged, fileValue)
+        }
+        // File storage was introduced for the same canonical bank. Legacy
+        // SharedPreferences may be the older CSV import with different keys,
+        // so it is only a fallback when no per-slot bank file exists.
+        if (foundSlotFile) return merged
+        val prefPattern = Regex("^slot(\\d+):${Regex.escape(name)}$")
+        prefs(context).all.forEach { (key, raw) ->
+            if (!prefPattern.matches(key) || raw !is String || raw.isBlank()) return@forEach
+            val parsed = runCatching { JSONObject(raw) }.getOrNull()
+            if (parsed != null) mergeNewer(merged, parsed)
+        }
+        return merged
+    }
+
+    private fun mergeEntries(
+        current: JSONObject,
+        incoming: JSONObject,
+        lastSeen: JSONObject?
+    ): JSONObject {
+        val merged = JSONObject()
+        current.keys().forEach { key ->
+            current.optJSONObject(key)?.let { merged.put(key, it) }
+        }
+        if (lastSeen != null) {
+            current.keys().forEach { key ->
+                if (!incoming.has(key) && lastSeen.has(key)) {
+                    val currentAt = merged.optJSONObject(key)?.optLong("at", 0L) ?: 0L
+                    val seenAt = lastSeen.optJSONObject(key)?.optLong("at", 0L) ?: 0L
+                    if (currentAt <= seenAt) merged.remove(key)
+                }
+            }
+        }
+        incoming.keys().forEach { key ->
+            val next = incoming.optJSONObject(key) ?: return@forEach
+            val previous = merged.optJSONObject(key)
+            if (previous == null ||
+                next.optLong("at", 0L) >= previous.optLong("at", 0L)
+            ) {
+                merged.put(key, next)
+            }
+        }
+        return merged
+    }
+
+    private fun mergeNewer(target: JSONObject, source: JSONObject) {
+        source.keys().forEach { key ->
+            val next = source.optJSONObject(key) ?: return@forEach
+            val previous = target.optJSONObject(key)
+            if (previous == null ||
+                next.optLong("at", 0L) >= previous.optLong("at", 0L)
+            ) {
+                target.put(key, next)
+            }
+        }
+    }
+
+    private fun readSharedValue(context: Context, name: String): String? =
+        sharedDataFile(context, name).takeIf { it.isFile }
+            ?.let { runCatching { it.readText() }.getOrNull() }
+
+    private fun parseImport(text: String): Parsed {
+        val parsed = parse(text.trim().removePrefix("\uFEFF"))
+        if (parsed.bank.length() == 0) error("没有解析到题库条目")
+        return parsed
+    }
+
+    private fun mergeInto(
+        current: JSONObject,
+        incoming: JSONObject
+    ): Pair<JSONObject, MergeResult> {
+        val merged = JSONObject(current.toString())
+        var added = 0
+        var updated = 0
+        var unchanged = 0
+        var total = 0
+        incoming.keys().forEach { key ->
+            if (isMetaKey(key)) return@forEach
+            val next = incoming.optJSONObject(key) ?: return@forEach
+            total++
+            val previous = merged.optJSONObject(key)
+            when {
+                previous == null -> added++
+                previous.toString() == next.toString() -> unchanged++
+                else -> updated++
+            }
+            merged.put(key, next)
+        }
+        return merged to MergeResult(
+            incoming = total,
+            added = added,
+            updated = updated,
+            unchanged = unchanged,
+            finalCount = countEntries(merged)
+        )
+    }
+
+    private fun replaceFile(target: File, value: String) {
         val dir = target.parentFile ?: error("题库目录无效")
         if (!dir.isDirectory && !dir.mkdirs()) error("无法创建题库目录")
         val tmp = File(target.absolutePath + ".tmp")
@@ -143,17 +327,24 @@ object BankStore {
         }
     }
 
-    internal fun removeValue(context: Context, slot: Int, name: String) {
-        dataFile(context, slot, name).delete()
-        val legacyKey = key(slot, name)
-        if (prefs(context).contains(legacyKey)) {
-            prefs(context).edit().remove(legacyKey).apply()
+    private fun <T> withFileLock(context: Context, block: () -> T): T =
+        synchronized(PROCESS_LOCK) {
+            val dir = bankDir(context)
+            if (!dir.isDirectory && !dir.mkdirs()) error("无法创建题库目录")
+            FileChannel.open(
+                File(dir, LOCK_FILE).toPath(),
+                StandardOpenOption.CREATE,
+                StandardOpenOption.WRITE
+            ).use { channel ->
+                channel.lock().use { block() }
+            }
         }
-    }
 
-    private fun dataFile(context: Context, slot: Int, name: String): File {
+    private fun bankDir(context: Context): File = File(context.filesDir, BANK_DIR)
+
+    private fun sharedDataFile(context: Context, name: String): File {
         require(name == BANK || name == NOTES) { "unsupported bank field" }
-        return File(File(context.filesDir, BANK_DIR), "slot${slot}_$name.json")
+        return File(bankDir(context), "shared_$name.json")
     }
 
     private fun parse(text: String): Parsed {

@@ -33,6 +33,7 @@ class MainActivity : Activity() {
     private lateinit var list: LinearLayout
     private lateinit var summary: TextView
     private var pendingBankSlot = -1
+    private var pendingExportSlot = -1
 
     private val previews = arrayOfNulls<ImageView>(InstanceStore.MAX)
     private val placeholders = arrayOfNulls<TextView>(InstanceStore.MAX)
@@ -360,7 +361,7 @@ class MainActivity : Activity() {
     private fun sendControl(action: String, slot: Int) {
         sendBroadcast(
             Intent(action).setPackage(packageName).putExtra("slot", slot),
-            CONTROL_PERMISSION
+            getString(R.string.control_permission)
         )
     }
 
@@ -420,14 +421,21 @@ class MainActivity : Activity() {
     }
 
     private fun showBankDialog(slot: Int) {
-        val items = arrayOf("导出题库到文件", "从文件导入题库", "从剪贴板导入题库", "清空题库")
+        val items = arrayOf(
+            "导出题库（自选位置）",
+            "从文件导入（替换共享库）",
+            "手动合并题库文件",
+            "从剪贴板导入（替换共享库）",
+            "清空共享题库"
+        )
         AlertDialog.Builder(this)
-            .setTitle("实例 ${slot + 1} · ${BankStore.summary(this, slot)}")
+            .setTitle("实例 ${slot + 1} · ${BankStore.summary(this, slot)} · 全实例共享")
             .setItems(items) { _, which ->
                 when (which) {
                     0 -> exportBank(slot)
                     1 -> importBankFromFile(slot)
-                    2 -> importBankFromClipboard(slot)
+                    2 -> mergeBankFromFile(slot)
+                    3 -> importBankFromClipboard(slot)
                     else -> clearBank(slot)
                 }
             }
@@ -436,9 +444,16 @@ class MainActivity : Activity() {
     }
 
     private fun exportBank(slot: Int) {
-        runCatching { BankStore.exportToFile(this, slot) }
-            .onSuccess { toast("题库已导出：$it") }
-            .onFailure { toast("导出失败：${it.message}") }
+        if (BankStore.count(this, slot) == 0) {
+            toast("共享题库为空，没有可导出的条目")
+            return
+        }
+        pendingExportSlot = slot
+        startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/json"
+            putExtra(Intent.EXTRA_TITLE, BankStore.exportFileName())
+        }, REQ_EXPORT_BANK)
     }
 
     private fun importBankFromFile(slot: Int) {
@@ -447,6 +462,14 @@ class MainActivity : Activity() {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "*/*"
         }, REQ_IMPORT_BANK)
+    }
+
+    private fun mergeBankFromFile(slot: Int) {
+        pendingBankSlot = slot
+        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+        }, REQ_MERGE_BANK)
     }
 
     private fun importBankFromClipboard(slot: Int) {
@@ -459,7 +482,7 @@ class MainActivity : Activity() {
         }
         runCatching { BankStore.importData(this, slot, text) }
             .onSuccess {
-                toast("已导入 ${BankStore.count(this, slot)} 条（${it.source}）")
+                toast("共享题库已更新为 ${BankStore.count(this, slot)} 条（${it.source}）")
                 refreshStatus()
             }
             .onFailure { toast("导入失败：${it.message}") }
@@ -467,9 +490,12 @@ class MainActivity : Activity() {
 
     private fun clearBank(slot: Int) {
         AlertDialog.Builder(this)
-            .setTitle("清空实例 ${slot + 1} 的题库？")
-            .setMessage("只会删除本地题库，不影响服务器上的作答记录。")
-            .setPositiveButton("清空") { _, _ -> BankStore.clear(this, slot); refreshStatus() }
+            .setTitle("清空全实例共享题库？")
+            .setMessage("所有实例会同时变为空题库；不影响服务器上的作答记录。")
+            .setPositiveButton("清空") { _, _ ->
+                BankStore.clear(this, slot)
+                refreshStatus()
+            }
             .setNegativeButton("取消", null)
             .show()
     }
@@ -503,9 +529,34 @@ class MainActivity : Activity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode != RESULT_OK || data == null) return
-        val uri = data.data ?: return
+        if (resultCode != RESULT_OK || data == null) {
+            if (requestCode == REQ_EXPORT_BANK) pendingExportSlot = -1
+            if (requestCode == REQ_IMPORT_BANK || requestCode == REQ_MERGE_BANK) {
+                pendingBankSlot = -1
+            }
+            return
+        }
+        val uri = data.data
+        if (uri == null) {
+            if (requestCode == REQ_EXPORT_BANK) pendingExportSlot = -1
+            if (requestCode == REQ_IMPORT_BANK || requestCode == REQ_MERGE_BANK) {
+                pendingBankSlot = -1
+            }
+            return
+        }
         when (requestCode) {
+            REQ_EXPORT_BANK -> {
+                val slot = pendingExportSlot
+                pendingExportSlot = -1
+                if (slot < 0) return
+                runCatching {
+                    writeUri(uri, BankStore.exportText(this, slot))
+                }.onSuccess {
+                    toast("题库已导出到你选择的位置")
+                }.onFailure {
+                    toast("导出失败：${it.message}")
+                }
+            }
             REQ_IMPORT_BANK -> {
                 val slot = pendingBankSlot
                 pendingBankSlot = -1
@@ -513,10 +564,46 @@ class MainActivity : Activity() {
                 runCatching { readUri(uri) }
                     .mapCatching { BankStore.importData(this, slot, it) }
                     .onSuccess {
-                        toast("已导入 ${BankStore.count(this, slot)} 条题库（${it.source}）")
+                        toast("共享题库已更新为 ${BankStore.count(this, slot)} 条（${it.source}）")
                         refreshStatus()
                     }
                     .onFailure { toast("导入失败：${it.message}") }
+            }
+            REQ_MERGE_BANK -> {
+                val slot = pendingBankSlot
+                pendingBankSlot = -1
+                if (slot < 0) return
+                runCatching { readUri(uri) }
+                    .mapCatching { text ->
+                        Pair(text, BankStore.previewMerge(this, slot, text))
+                    }
+                    .onSuccess { merge ->
+                        val text = merge.first
+                        val preview = merge.second
+                        AlertDialog.Builder(this)
+                            .setTitle("确认手动合并题库？")
+                            .setMessage(
+                                "文件中有 ${preview.incoming} 条：\n" +
+                                    "新增 ${preview.added} 条，覆盖 ${preview.updated} 条，" +
+                                    "未变化 ${preview.unchanged} 条。\n\n" +
+                                    "合并后共享题库共 ${preview.finalCount} 条；" +
+                                    "其他实例会同时看到合并结果。"
+                            )
+                            .setPositiveButton("合并") { _, _ ->
+                                runCatching { BankStore.mergeData(this, slot, text) }
+                                    .onSuccess { result ->
+                                        toast(
+                                            "合并完成：新增 ${result.added}，覆盖 ${result.updated}，" +
+                                                "共享题库 ${result.finalCount} 条"
+                                        )
+                                        refreshStatus()
+                                    }
+                                    .onFailure { toast("合并失败：${it.message}") }
+                            }
+                            .setNegativeButton("取消", null)
+                            .show()
+                    }
+                    .onFailure { toast("读取或解析失败：${it.message}") }
             }
             REQ_IMPORT_CONFIG -> {
                 runCatching {
@@ -534,6 +621,12 @@ class MainActivity : Activity() {
         contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
             ?: error("打不开文件")
 
+    private fun writeUri(uri: Uri, text: String) {
+        contentResolver.openOutputStream(uri, "wt")?.bufferedWriter(Charsets.UTF_8)?.use {
+            it.write(text)
+        } ?: error("无法打开导出目标")
+    }
+
     private fun toast(text: String) {
         Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
     }
@@ -545,6 +638,7 @@ class MainActivity : Activity() {
         private const val REQ_IMPORT_BANK = 4101
         private const val REQ_IMPORT_CONFIG = 4103
         private const val REQ_NOTIFICATIONS = 4104
-        private const val CONTROL_PERMISSION = "com.yzj.client.permission.CONTROL"
+        private const val REQ_EXPORT_BANK = 4105
+        private const val REQ_MERGE_BANK = 4106
     }
 }

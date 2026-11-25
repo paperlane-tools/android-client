@@ -3,6 +3,18 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+def signingProps = new Properties()
+def signingPropsFile = rootProject.file("keystore.properties")
+if (signingPropsFile.exists()) {
+    signingPropsFile.withInputStream { signingProps.load(it) }
+}
+
+def releaseStorePath = System.getenv("YZJ_RELEASE_STORE_FILE") ?: signingProps.getProperty("storeFile")
+def releaseStorePassword = System.getenv("YZJ_RELEASE_STORE_PASSWORD") ?: signingProps.getProperty("storePassword")
+def releaseKeyAlias = System.getenv("YZJ_RELEASE_KEY_ALIAS") ?: signingProps.getProperty("keyAlias")
+def releaseKeyPassword = System.getenv("YZJ_RELEASE_KEY_PASSWORD") ?: signingProps.getProperty("keyPassword")
+def hasReleaseSigning = releaseStorePath && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
+
 android {
     namespace 'com.yzj.client'
     compileSdk 34
@@ -11,17 +23,34 @@ android {
         applicationId "com.yzj.client"
         minSdk 26
         targetSdk 34
-        versionCode 11
-        versionName "0.8.0"
+        versionCode 100
+        versionName "1.0.0"
+        manifestPlaceholders = [controlPermission: "com.yzj.client.release.permission.CONTROL"]
+    }
+
+    signingConfigs {
+        release {
+            if (hasReleaseSigning) {
+                storeFile file(releaseStorePath)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
     }
 
     buildTypes {
         debug {
             applicationIdSuffix ".debug"
             versionNameSuffix "-debug"
+            manifestPlaceholders = [controlPermission: "com.yzj.client.debug.permission.CONTROL"]
+            resValue "string", "control_permission", "com.yzj.client.debug.permission.CONTROL"
         }
         release {
             minifyEnabled false
+            manifestPlaceholders = [controlPermission: "com.yzj.client.release.permission.CONTROL"]
+            resValue "string", "control_permission", "com.yzj.client.release.permission.CONTROL"
+            if (hasReleaseSigning) signingConfig signingConfigs.release
         }
     }
 
@@ -32,6 +61,15 @@ android {
 
     kotlinOptions {
         jvmTarget = '17'
+    }
+}
+
+gradle.taskGraph.whenReady { graph ->
+    if (!hasReleaseSigning &&
+        graph.allTasks.any { it.name.toLowerCase().contains("release") }) {
+        throw new GradleException(
+            "Release signing is not configured. Provide keystore.properties or YZJ_RELEASE_* environment variables."
+        )
     }
 }
 

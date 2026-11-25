@@ -4,10 +4,10 @@
 
 | | |
 |---|---|
-| 版本 | v0.8.0（测试版 / debug） |
+| 版本 | v1.0.0（正式签名版） |
 | 形态 | Android App（Kotlin + WebView） |
-| 内置脚本 | quiz-helper v1.6.2 / materials-helper v1.3.1 |
-| 安装包 | [Releases](https://github.com/paperlane-tools/android-client/releases)（当前 `v0.8.0` 测试版 APK） |
+| 内置脚本 | quiz-helper v1.6.6 / materials-helper v1.3.1 |
+| 安装包 | [Releases](https://github.com/paperlane-tools/android-client/releases)（当前 `v1.0.0` 正式签名 APK） |
 
 > **适用平台：易智教云课堂（`csgmooc.com`，含其移动端页面）**
 > 内置的两个脚本分别对应该平台的「刷题」和「资料」；其他平台的页面不会生效。
@@ -20,7 +20,7 @@
 WebView 里，用 Android 多进程 + `WebView.setDataDirectorySuffix` 做账号隔离，
 用原生 HTTP 桥接解决 AI 接口的 CORS 问题。
 
-## 当前能力（v0.8.0）
+## 当前能力（v1.0.0）
 
 - 默认 2 个实例，主界面可添加到 6 个；实例 1~6 分别运行在
   `:acct0` 到 `:acct5` 六个独立进程。
@@ -38,14 +38,17 @@ WebView 里，用 Android 多进程 + `WebView.setDataDirectorySuffix` 做账号
   `files/secure/`，账号进程和主进程都能实时读取。
 - 提供“12h 会话保活”前台服务：每 10 分钟用加密保存的 authtoken 请求一次轻量接口，
   持续 12 小时；会话失效时在通知和实例状态里标记“需重登”。
-- 支持单实例题库的导入/导出（文件或剪贴板）与清空。
+- 所有实例共享同一份题库；任一实例学习到的新答案会立即写回共享库。
+- 支持共享题库替换导入、手动合并、剪贴板导入和清空。手动合并会先显示
+  新增 / 覆盖 / 未变化 / 合并后总条数，再让用户确认。
+- 题库导出使用 Android 系统“另存为”，目录和文件名自行选择。
 - 支持单实例重置、全部重置、全部停止、全部启动、配置一键下发。
 - 重置会同时删除该实例在 Keystore 中的加密会话；账号进程存活时先等待
   sessionStorage/localStorage/Cookie 清空，再回登录页，避免重置后又被自动恢复。
   账号进程已停止时，主进程会写入待重置标记；下次进入该实例会先清 WebView
   存储和 Cookie，再加载登录页。
 - 进入账号后自动注入：
-  - `quiz/csgmooc-helper.user.js`（自动作答助手 v1.6.2）
+  - `quiz/csgmooc-helper.user.js`（自动作答助手 v1.6.6）
   - `materials/userscript/csgmooc-materials.user.js`（资料助手 v1.3.1）
 - 兼容层补齐了 `GM_getValue / GM_setValue / GM_setClipboard / GM_xmlhttpRequest`。
 - `GM_xmlhttpRequest` 走原生 `HttpURLConnection`，不受浏览器 CORS 限制，AI 请求可直接发。
@@ -85,10 +88,10 @@ cd E:\yzj-js\android-client
 E:\yzj-js\android-client\app\build\outputs\apk\debug\app-debug.apk
 ```
 
-已验证的分发副本（构建目录清理后仍保留）：
+正式版下载：
 
 ```
-https://github.com/paperlane-tools/android-client/releases/tag/v0.8.0
+https://github.com/paperlane-tools/android-client/releases/tag/v1.0.0
 ```
 
 一键构建并安装到 MuMu：
@@ -125,13 +128,13 @@ adb -s 127.0.0.1:16416 install -r app\build\outputs\apk\debug\app-debug.apk
 应用启动后，账号页顶部有“导入登录态”。文件路径：
 
 ```
-/sdcard/Android/data/com.yzj.client.debug/files/session_storage.json
+/sdcard/Android/data/com.yzj.client/files/session_storage.json
 ```
 
 推送：
 
 ```powershell
-adb -s 127.0.0.1:16384 push work\session_storage.json /sdcard/Android/data/com.yzj.client.debug/files/session_storage.json
+adb -s 127.0.0.1:16384 push work\session_storage.json /sdcard/Android/data/com.yzj.client/files/session_storage.json
 ```
 
 导入后应用会显示导入条数、token 是否存在，然后跳到任务页。若站点提示登录过期，
@@ -176,6 +179,10 @@ adb -s 127.0.0.1:16384 push work\session_storage.json /sdcard/Android/data/com.y
 > 主进程导入后账号进程立即可读；同时修正原生桥多套一层 JSON 字符串导致题库
 > 对象被当成文本的问题。网页平铺 JSON、App 包装 JSON、对象/键值数组和
 > 中文/英文 CSV 都可导入，CSV 支持引号、逗号和字段内换行。
+>
+> v1.0.0 正式版：题库改为全实例共享，文件锁保证并发写入不会互相覆盖；
+> “手动合并题库文件”支持预览后落库；题库导出接入系统另存为；内置刷题脚本
+> 更新到 v1.6.6。安装包使用独立 release keystore 签名，不再使用 debug 签名。
 
 ### 逆向核对结果
 
@@ -199,7 +206,7 @@ adb -s 127.0.0.1:16384 push work\session_storage.json /sdcard/Android/data/com.y
 - “导出登录态”：把当前账号的完整 sessionStorage 复制到剪贴板。
 - “粘贴登录态”：从剪贴板读取 JSON，写入当前账号后跳到任务页。
 - “导入文件”：读取
-  `/sdcard/Android/data/com.yzj.client.debug/files/session_storage.json`。
+  `/sdcard/Android/data/com.yzj.client/files/session_storage.json`。
 
 这套方式可以在实例之间迁移，也可以复制到另一台 MuMu 实例。
 
@@ -218,13 +225,13 @@ adb -s 127.0.0.1:16384 push work\session_storage.json /sdcard/Android/data/com.y
 配置文件在：
 
 ```
-/data/data/com.yzj.client.debug/files/config.json
+/data/data/com.yzj.client/files/config.json
 ```
 
 加密的登录态和 API Key 在：
 
 ```
-/data/data/com.yzj.client.debug/files/secure/
+/data/data/com.yzj.client/files/secure/
 ```
 
 ## 仅日志模式
@@ -246,23 +253,20 @@ adb -s 127.0.0.1:16384 push work\session_storage.json /sdcard/Android/data/com.y
 
 实例卡片点“题库”：
 
-- 导出题库到文件：生成 `bank-slotN-时间.json`，包含 `answerBank` 与 `bankNotes`。
+- 导出题库：打开系统“另存为”，默认文件名 `yzj-bank-shared-时间.json`，
+  目录和文件名自行选择。
 - 从文件导入：支持网页平铺导出、本应用包装格式、裸 `answerBank` 对象、
-  JSON 数组，以及网页导出的 CSV。
-- 从剪贴板导入：适合从 PC 题库编辑器复制 JSON。
-- 清空题库：只删本地 `answerBank` / `bankNotes`，不影响服务器记录。
-
-导出目录：
-
-```
-/sdcard/Android/data/com.yzj.client.debug/files/Download/yzj-export/
-```
+  JSON 数组和网页导出的 CSV；该操作替换共享库。
+- 手动合并题库文件：先预览新增 / 覆盖 / 未变化 / 合并后条数，
+  确认后才写入；同名 key 以合并文件为准。
+- 从剪贴板导入：适合从 PC 题库编辑器复制 JSON，该操作替换共享库。
+- 清空题库：清空全实例共享题库，不影响服务器记录。
 
 运行中的题库文件：
 
 ```
-/data/data/com.yzj.client.debug/files/banks/slotN_answerBank.json
-/data/data/com.yzj.client.debug/files/banks/slotN_bankNotes.json
+/data/data/com.yzj.client/files/banks/shared_answerBank.json
+/data/data/com.yzj.client/files/banks/shared_bankNotes.json
 ```
 
 ## 日志与 CSV 导出
@@ -271,7 +275,7 @@ adb -s 127.0.0.1:16384 push work\session_storage.json /sdcard/Android/data/com.y
 `shim.js` 会拦截这类点击，把文本交给原生 `saveText`，文件保存在：
 
 ```
-/sdcard/Android/data/com.yzj.client.debug/files/Download/yzj-export/
+/sdcard/Android/data/com.yzj.client/files/Download/yzj-export/
 ```
 
 实测导出的资料日志文件名类似：
@@ -285,16 +289,16 @@ yzj-mat-log-20261020-28809.txt
 在 MuMu Android 12 / WebView 110 上：
 
 - 原生层已全部迁移到 Kotlin（`app/src/main/java/com/yzj/client/*.kt`，没有 Java 业务类）。
-- 两个脚本均成功注入，状态行显示 `quiz:1.6.2`、`mat:1.3.1`。
+- 两个脚本均成功注入，正式版状态行显示 `quiz:1.6.6`、`mat:1.3.1`。
 - 资料助手面板可打开，GM 设置值正常读取（30/90/10/15/45）。
-- 自动作答助手设置页可打开，显示 v1.6.2 和 AI 服务商配置。
+- 自动作答助手设置页可打开，显示 v1.6.6 和 AI 服务商配置。
 - 默认 2 个实例；主界面“添加实例”扩到 3 个后，实例 1/2/3 分别对应
   `:acct0/:acct1/:acct2` 三个独立进程。
 - 三个实例同时存在三个进程：
-  - `com.yzj.client.debug`
-  - `com.yzj.client.debug:acct0`
-  - `com.yzj.client.debug:acct1`
-  - `com.yzj.client.debug:acct2`
+  - `com.yzj.client`
+  - `com.yzj.client:acct0`
+  - `com.yzj.client:acct1`
+  - `com.yzj.client:acct2`
 - 三个 WebView 数据目录独立：
   - `app_webview_yzj_acct0`
   - `app_webview_yzj_acct1`
@@ -326,7 +330,7 @@ yzj-mat-log-20261020-28809.txt
 - 题库“导出到文件”成功生成 `bank-slot1-20261020-135641.json`。
 - 单实例“重置”成功后，登录态、运行状态和预览图被清空。
 - 资料助手“导出日志”成功落到
-  `/sdcard/Android/data/com.yzj.client.debug/files/Download/yzj-export/yzj-mat-log-20261020-28809.txt`。
+  `/sdcard/Android/data/com.yzj.client/files/Download/yzj-export/yzj-mat-log-20261020-28809.txt`。
 
 ## 已知限制
 
@@ -342,9 +346,10 @@ yzj-mat-log-20261020-28809.txt
 3. **AI Key 不预置**  
    每个账号在“AI 易智教助手 → 设置”里填自己的 Key；`GM_xmlhttpRequest` 已能直连各家 API。
 
-4. **这是验证版，不是加固版**  
-   支持 2~6 个实例；token 和 API Key 已用 Keystore 加密保存，但 WebView 页面运行期间
-   sessionStorage 里仍会有内存态 token。当前是 debug 包，正式分发还需要 release 签名。
+4. **正式签名，但 WebView 仍会持有内存态登录数据**
+   支持 2~6 个实例；token 和 API Key 已用 Android Keystore 加密保存。
+   正式包使用独立 release keystore 签名；WebView 运行期间 sessionStorage
+   仍会有内存态 token，建议只在本人设备使用。
 
 5. **12 小时保活依赖服务端会话策略**  
    `SessionKeeper` 每 10 分钟请求一次轻量接口，尽量让 token 保持活跃；如果服务端主动
@@ -359,7 +364,8 @@ yzj-mat-log-20261020-28809.txt
 
 ## 项目状态
 
-**半成品，可粗略使用。** 多开、脚本注入、题库/日志等主链路已跑通，但仍有已知问题（例如切换实例后定时器可能暂停、暂无 release 签名包），适合验证与自用，不建议直接分发。
+**正式版可用。** 多开、脚本注入、共享题库、手动合并、日志等主链路已跑通；
+正式包已使用独立 release keystore 签名。WebView 后台定时器节流仍是平台限制。
 
 ## 免责声明
 
