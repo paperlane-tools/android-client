@@ -1,0 +1,35 @@
+# Android / Gradle / IDE
+.gradle/
+**/build/
+local.properties
+.idea/
+*.iml
+.externalNativeBuild/
+.cxx/
+captures/
+
+# Signing material and local secrets
+*.jks
+*.keystore
+keystore.properties
+.env
+.env.*
+!.env.example
+config.json
+ai_config.json
+*secret*.json
+*token*.json
+
+# Built packages (README remains tracked)
+*.apk
+*.aab
+!dist/README.md
+
+# Logs / temporary files
+*.log
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db
+desktop.ini
+
